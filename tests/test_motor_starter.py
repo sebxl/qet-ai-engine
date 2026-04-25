@@ -586,3 +586,511 @@ class TestQetXmlGeneration:
             assert cond.attrib["terminal2"] in terminal_uuids
             assert cond.attrib["element1"] in element_uuids
             assert cond.attrib["element2"] in element_uuids
+
+
+# ══════════════════════════════════════════════════════════════════════
+# QET-5: Control Circuit (Steuerstromkreis)
+# ══════════════════════════════════════════════════════════════════════
+
+
+# ── CYCLE 9: Backward compatibility -- with_control_circuit=False ──
+
+
+class TestControlCircuitBackwardCompat:
+    """CYCLE 9: Default behaviour unchanged when control circuit not requested."""
+
+    def test_default_params_produce_one_folio(
+        self, motor_starter_element_db, valid_motor_starter_params
+    ):
+        """Without with_control_circuit, only 1 folio is created."""
+        writer = _make_writer(motor_starter_element_db)
+        tmpl = MotorStarterTemplate(writer)
+        project = tmpl.generate(valid_motor_starter_params)
+        assert len(project.folios) == 1
+
+    def test_explicit_false_produces_one_folio(
+        self, motor_starter_element_db, valid_motor_starter_params
+    ):
+        """with_control_circuit=False explicitly still produces 1 folio."""
+        params = {**valid_motor_starter_params, "with_control_circuit": False}
+        writer = _make_writer(motor_starter_element_db)
+        tmpl = MotorStarterTemplate(writer)
+        project = tmpl.generate(params)
+        assert len(project.folios) == 1
+
+
+# ── CYCLE 10: Two folios when control circuit enabled ────────────────
+
+
+class TestControlCircuitFolioCreation:
+    """CYCLE 10: with_control_circuit=True creates a second folio."""
+
+    def test_two_folios_created(
+        self, control_circuit_element_db, valid_control_circuit_params
+    ):
+        writer = _make_writer(control_circuit_element_db)
+        tmpl = MotorStarterTemplate(writer)
+        project = tmpl.generate(valid_control_circuit_params)
+        assert len(project.folios) == 2
+
+    def test_folio1_is_hauptstromkreis(
+        self, control_circuit_element_db, valid_control_circuit_params
+    ):
+        writer = _make_writer(control_circuit_element_db)
+        tmpl = MotorStarterTemplate(writer)
+        project = tmpl.generate(valid_control_circuit_params)
+        assert project.folios[0].title == "Hauptstromkreis"
+
+    def test_folio2_is_steuerstromkreis(
+        self, control_circuit_element_db, valid_control_circuit_params
+    ):
+        writer = _make_writer(control_circuit_element_db)
+        tmpl = MotorStarterTemplate(writer)
+        project = tmpl.generate(valid_control_circuit_params)
+        assert project.folios[1].title == "Steuerstromkreis"
+
+    def test_requires_contactor_coil_voltage(
+        self, control_circuit_element_db
+    ):
+        """with_control_circuit=True requires contactor_coil_voltage."""
+        params = {
+            "motor_power_kw": 1.5,
+            "motor_voltage": "400V_3ph",
+            "motor_current_a": 3.5,
+            "protection_type": "thermal_overload",
+            "with_control_circuit": True,
+            # Missing contactor_coil_voltage
+        }
+        writer = _make_writer(control_circuit_element_db)
+        tmpl = MotorStarterTemplate(writer)
+        with pytest.raises(ValueError, match="contactor_coil_voltage"):
+            tmpl.generate(params)
+
+
+# ── CYCLE 11: Control circuit element placement ──────────────────────
+
+
+class TestControlCircuitPlacement:
+    """CYCLE 11: 6 elements placed on folio 2 with correct designations & positions."""
+
+    @pytest.fixture
+    def project(self, control_circuit_element_db, valid_control_circuit_params):
+        writer = _make_writer(control_circuit_element_db)
+        tmpl = MotorStarterTemplate(writer)
+        return tmpl.generate(valid_control_circuit_params)
+
+    @pytest.fixture
+    def folio2(self, project):
+        return project.folios[1]
+
+    def test_six_elements_on_folio2(self, folio2):
+        assert len(folio2.elements) == 6
+
+    def test_element_designations(self, folio2):
+        designations = [e.designation for e in folio2.elements]
+        assert designations == ["S0", "F2", "S1", "S2", "K1", "K1"]
+
+    def test_element_paths(self, folio2):
+        paths = [e.elmt_path for e in folio2.elements]
+        assert paths[0].endswith("e_stop_1p.elmt")       # S0
+        assert paths[1].endswith("con_simple_nf.elmt")    # F2 aux
+        assert paths[2].endswith("poussoir_nf.elmt")      # S1
+        assert paths[3].endswith("poussoir.elmt")         # S2
+        assert paths[4].endswith("con_simple.elmt")       # K1 self-hold
+        assert paths[5].endswith("bobine3.elmt")          # K1 coil
+
+    def test_all_paths_start_with_common(self, folio2):
+        for e in folio2.elements:
+            assert e.elmt_path.startswith("common://")
+
+    def test_s0_position(self, folio2):
+        s0 = folio2.elements[0]
+        assert s0.x == 300
+        assert s0.y == 150
+
+    def test_f2_aux_position(self, folio2):
+        f2 = folio2.elements[1]
+        assert f2.x == 300
+        assert f2.y == 230
+
+    def test_s1_position(self, folio2):
+        s1 = folio2.elements[2]
+        assert s1.x == 300
+        assert s1.y == 310
+
+    def test_s2_position(self, folio2):
+        s2 = folio2.elements[3]
+        assert s2.x == 300
+        assert s2.y == 390
+
+    def test_k1_self_hold_position(self, folio2):
+        """K1 self-hold contact offset to x=380 for parallel branch."""
+        k1_self = folio2.elements[4]
+        assert k1_self.x == 380
+        assert k1_self.y == 390
+
+    def test_k1_coil_position(self, folio2):
+        k1_coil = folio2.elements[5]
+        assert k1_coil.x == 300
+        assert k1_coil.y == 470
+
+    def test_vertical_order_main_path(self, folio2):
+        """Main path elements stacked vertically: S0 < F2 < S1 < S2 < K1_coil."""
+        s0, f2, s1, s2 = folio2.elements[0:4]
+        k1_coil = folio2.elements[5]
+        assert s0.y < f2.y < s1.y < s2.y < k1_coil.y
+
+    def test_positions_on_10px_grid(self, folio2):
+        for e in folio2.elements:
+            assert e.x % 10 == 0, f"{e.designation} x={e.x} not on grid"
+            assert e.y % 10 == 0, f"{e.designation} y={e.y} not on grid"
+
+    def test_s0_has_2_terminals(self, folio2):
+        assert len(folio2.elements[0].terminals) == 2
+
+    def test_f2_aux_has_2_terminals(self, folio2):
+        assert len(folio2.elements[1].terminals) == 2
+
+    def test_s1_has_2_terminals(self, folio2):
+        assert len(folio2.elements[2].terminals) == 2
+
+    def test_s2_has_2_terminals(self, folio2):
+        assert len(folio2.elements[3].terminals) == 2
+
+    def test_k1_self_has_2_terminals(self, folio2):
+        assert len(folio2.elements[4].terminals) == 2
+
+    def test_k1_coil_has_2_terminals(self, folio2):
+        assert len(folio2.elements[5].terminals) == 2
+
+
+# ── CYCLE 12: Control circuit conductors ─────────────────────────────
+
+
+class TestControlCircuitConductors:
+    """CYCLE 12: 6 conductors on folio 2 with correct terminal mapping."""
+
+    @pytest.fixture
+    def project(self, control_circuit_element_db, valid_control_circuit_params):
+        writer = _make_writer(control_circuit_element_db)
+        tmpl = MotorStarterTemplate(writer)
+        return tmpl.generate(valid_control_circuit_params)
+
+    @pytest.fixture
+    def folio2(self, project):
+        return project.folios[1]
+
+    def test_six_conductors(self, folio2):
+        assert len(folio2.conductors) == 6
+
+    def test_conductors_reference_valid_elements(self, folio2):
+        element_uuids = {e.uuid for e in folio2.elements}
+        for c in folio2.conductors:
+            assert c.element1_uuid in element_uuids
+            assert c.element2_uuid in element_uuids
+
+    def test_conductors_reference_valid_terminals(self, folio2):
+        all_terminal_uuids = set()
+        for e in folio2.elements:
+            for t in e.terminals:
+                all_terminal_uuids.add(t.uuid)
+        for c in folio2.conductors:
+            assert c.terminal1_uuid in all_terminal_uuids
+            assert c.terminal2_uuid in all_terminal_uuids
+
+    def test_no_duplicate_conductors(self, folio2):
+        """No two conductors share the exact same terminal pair."""
+        seen = set()
+        for c in folio2.conductors:
+            pair = (c.terminal1_uuid, c.terminal2_uuid)
+            reverse = (c.terminal2_uuid, c.terminal1_uuid)
+            assert pair not in seen and reverse not in seen, (
+                f"Duplicate conductor: {pair}"
+            )
+            seen.add(pair)
+
+    def test_s0_bottom_to_f2aux_top(self, folio2):
+        """Conductor 1: S0 idx0 (bottom) -> F2_aux idx0 (top)."""
+        s0 = folio2.elements[0]
+        f2_aux = folio2.elements[1]
+        cond = next(
+            c for c in folio2.conductors
+            if c.element1_uuid == s0.uuid and c.element2_uuid == f2_aux.uuid
+        )
+        # S0: idx0 = bottom (south terminal)
+        assert cond.terminal1_uuid == s0.terminals[0].uuid
+        # F2_aux: idx0 = top (north terminal)
+        assert cond.terminal2_uuid == f2_aux.terminals[0].uuid
+
+    def test_f2aux_bottom_to_s1_top(self, folio2):
+        """Conductor 2: F2_aux idx1 (bottom) -> S1 idx0 (top)."""
+        f2_aux = folio2.elements[1]
+        s1 = folio2.elements[2]
+        cond = next(
+            c for c in folio2.conductors
+            if c.element1_uuid == f2_aux.uuid and c.element2_uuid == s1.uuid
+        )
+        assert cond.terminal1_uuid == f2_aux.terminals[1].uuid
+        assert cond.terminal2_uuid == s1.terminals[0].uuid
+
+    def test_s1_bottom_to_s2_top(self, folio2):
+        """Conductor 3: S1 idx1 (bottom) -> S2 idx0 (top)."""
+        s1 = folio2.elements[2]
+        s2 = folio2.elements[3]
+        cond = next(
+            c for c in folio2.conductors
+            if c.element1_uuid == s1.uuid and c.element2_uuid == s2.uuid
+        )
+        assert cond.terminal1_uuid == s1.terminals[1].uuid
+        assert cond.terminal2_uuid == s2.terminals[0].uuid
+
+    def test_s1_bottom_to_k1self_top(self, folio2):
+        """Conductor 4: S1 idx1 (bottom) -> K1_self idx0 (top)."""
+        s1 = folio2.elements[2]
+        k1_self = folio2.elements[4]
+        cond = next(
+            c for c in folio2.conductors
+            if c.element1_uuid == s1.uuid and c.element2_uuid == k1_self.uuid
+        )
+        assert cond.terminal1_uuid == s1.terminals[1].uuid
+        assert cond.terminal2_uuid == k1_self.terminals[0].uuid
+
+    def test_s2_bottom_to_k1coil_a1(self, folio2):
+        """Conductor 5: S2 idx1 (bottom) -> K1_coil A1 (named)."""
+        s2 = folio2.elements[3]
+        k1_coil = folio2.elements[5]
+        cond = next(
+            c for c in folio2.conductors
+            if c.element1_uuid == s2.uuid and c.element2_uuid == k1_coil.uuid
+        )
+        assert cond.terminal1_uuid == s2.terminals[1].uuid
+        # K1_coil A1 is the terminal named "A1"
+        a1 = next(t for t in k1_coil.terminals if t.name == "A1")
+        assert cond.terminal2_uuid == a1.uuid
+
+    def test_k1self_bottom_to_k1coil_a1(self, folio2):
+        """Conductor 6: K1_self idx1 (bottom) -> K1_coil A1 (named)."""
+        k1_self = folio2.elements[4]
+        k1_coil = folio2.elements[5]
+        cond = next(
+            c for c in folio2.conductors
+            if c.element1_uuid == k1_self.uuid and c.element2_uuid == k1_coil.uuid
+        )
+        assert cond.terminal1_uuid == k1_self.terminals[1].uuid
+        a1 = next(t for t in k1_coil.terminals if t.name == "A1")
+        assert cond.terminal2_uuid == a1.uuid
+
+    def test_s1_bottom_shared_by_two_conductors(self, folio2):
+        """S1 bottom terminal is shared: connects to both S2 and K1_self."""
+        s1 = folio2.elements[2]
+        s1_bottom_uuid = s1.terminals[1].uuid
+        conductors_from_s1_bottom = [
+            c for c in folio2.conductors
+            if c.terminal1_uuid == s1_bottom_uuid
+        ]
+        assert len(conductors_from_s1_bottom) == 2
+
+    def test_k1coil_a1_shared_by_two_conductors(self, folio2):
+        """K1_coil A1 terminal is shared: receives from both S2 and K1_self."""
+        k1_coil = folio2.elements[5]
+        a1 = next(t for t in k1_coil.terminals if t.name == "A1")
+        conductors_to_a1 = [
+            c for c in folio2.conductors
+            if c.terminal2_uuid == a1.uuid
+        ]
+        assert len(conductors_to_a1) == 2
+
+
+# ── CYCLE 13: Cross-references (link_master_slave) ──────────────────
+
+
+class TestCrossReferences:
+    """CYCLE 13: K1_coil linked to K1_self and K1_power via links_uuids."""
+
+    @pytest.fixture
+    def project(self, control_circuit_element_db, valid_control_circuit_params):
+        writer = _make_writer(control_circuit_element_db)
+        tmpl = MotorStarterTemplate(writer)
+        return tmpl.generate(valid_control_circuit_params)
+
+    def test_k1_coil_links_to_two_slaves(self, project):
+        """K1 coil (master) has links_uuids pointing to K1_self and K1_power."""
+        k1_coil = project.folios[1].elements[5]  # last element on folio 2
+        assert len(k1_coil.links_uuids) == 2
+
+    def test_k1_self_links_to_coil(self, project):
+        """K1 self-hold (slave) has link back to coil."""
+        k1_self = project.folios[1].elements[4]
+        k1_coil = project.folios[1].elements[5]
+        assert k1_coil.uuid in k1_self.links_uuids
+
+    def test_k1_power_links_to_coil(self, project):
+        """K1 power contact on folio 1 (slave) has link to coil on folio 2."""
+        k1_power = project.folios[0].elements[1]  # K1 contactor on folio 1
+        k1_coil = project.folios[1].elements[5]
+        assert k1_coil.uuid in k1_power.links_uuids
+
+    def test_k1_coil_links_contain_k1_self(self, project):
+        k1_self = project.folios[1].elements[4]
+        k1_coil = project.folios[1].elements[5]
+        assert k1_self.uuid in k1_coil.links_uuids
+
+    def test_k1_coil_links_contain_k1_power(self, project):
+        k1_power = project.folios[0].elements[1]
+        k1_coil = project.folios[1].elements[5]
+        assert k1_power.uuid in k1_coil.links_uuids
+
+    def test_bidirectional_links(self, project):
+        """All links are bidirectional."""
+        k1_coil = project.folios[1].elements[5]
+        k1_self = project.folios[1].elements[4]
+        k1_power = project.folios[0].elements[1]
+        # coil <-> self
+        assert k1_self.uuid in k1_coil.links_uuids
+        assert k1_coil.uuid in k1_self.links_uuids
+        # coil <-> power
+        assert k1_power.uuid in k1_coil.links_uuids
+        assert k1_coil.uuid in k1_power.links_uuids
+
+
+# ── CYCLE 14: Folio 1 unchanged when control circuit added ──────────
+
+
+class TestFolio1UnchangedWithControlCircuit:
+    """CYCLE 14: Power circuit on folio 1 identical with or without control circuit."""
+
+    @pytest.fixture
+    def project(self, control_circuit_element_db, valid_control_circuit_params):
+        writer = _make_writer(control_circuit_element_db)
+        tmpl = MotorStarterTemplate(writer)
+        return tmpl.generate(valid_control_circuit_params)
+
+    @pytest.fixture
+    def folio1(self, project):
+        return project.folios[0]
+
+    def test_folio1_four_elements(self, folio1):
+        assert len(folio1.elements) == 4
+
+    def test_folio1_nine_conductors(self, folio1):
+        assert len(folio1.conductors) == 9
+
+    def test_folio1_element_designations(self, folio1):
+        designations = [e.designation for e in folio1.elements]
+        assert designations == ["F1", "K1", "F2", "M1"]
+
+    def test_folio1_title(self, folio1):
+        assert folio1.title == "Hauptstromkreis"
+
+
+# ── CYCLE 15: Full XML generation with control circuit ───────────────
+
+
+class TestControlCircuitXmlGeneration:
+    """CYCLE 15: save() produces valid XML with 2 diagrams."""
+
+    def test_xml_has_two_diagrams(
+        self, control_circuit_element_db, valid_control_circuit_params, tmp_path
+    ):
+        import xml.etree.ElementTree as ET
+
+        writer = _make_writer(control_circuit_element_db)
+        tmpl = MotorStarterTemplate(writer)
+        project = tmpl.generate(valid_control_circuit_params)
+
+        filepath = tmp_path / "test_control_circuit.qet"
+        writer.save(project, filepath)
+
+        tree = ET.parse(filepath)
+        root = tree.getroot()
+        diagrams = root.findall("diagram")
+        assert len(diagrams) == 2
+
+    def test_xml_diagram2_has_six_elements(
+        self, control_circuit_element_db, valid_control_circuit_params, tmp_path
+    ):
+        import xml.etree.ElementTree as ET
+
+        writer = _make_writer(control_circuit_element_db)
+        tmpl = MotorStarterTemplate(writer)
+        project = tmpl.generate(valid_control_circuit_params)
+
+        filepath = tmp_path / "test_control_circuit.qet"
+        writer.save(project, filepath)
+
+        tree = ET.parse(filepath)
+        root = tree.getroot()
+        diagram2 = root.findall("diagram")[1]
+        elements = diagram2.find("elements").findall("element")
+        assert len(elements) == 6
+
+    def test_xml_diagram2_has_six_conductors(
+        self, control_circuit_element_db, valid_control_circuit_params, tmp_path
+    ):
+        import xml.etree.ElementTree as ET
+
+        writer = _make_writer(control_circuit_element_db)
+        tmpl = MotorStarterTemplate(writer)
+        project = tmpl.generate(valid_control_circuit_params)
+
+        filepath = tmp_path / "test_control_circuit.qet"
+        writer.save(project, filepath)
+
+        tree = ET.parse(filepath)
+        root = tree.getroot()
+        diagram2 = root.findall("diagram")[1]
+        conductors = diagram2.find("conductors").findall("conductor")
+        assert len(conductors) == 6
+
+    def test_xml_links_uuids_present_on_coil(
+        self, control_circuit_element_db, valid_control_circuit_params, tmp_path
+    ):
+        import xml.etree.ElementTree as ET
+
+        writer = _make_writer(control_circuit_element_db)
+        tmpl = MotorStarterTemplate(writer)
+        project = tmpl.generate(valid_control_circuit_params)
+
+        filepath = tmp_path / "test_control_circuit.qet"
+        writer.save(project, filepath)
+
+        tree = ET.parse(filepath)
+        root = tree.getroot()
+        diagram2 = root.findall("diagram")[1]
+        elements = diagram2.find("elements").findall("element")
+
+        # Last element on folio 2 is the coil
+        coil_elem = elements[5]
+        links = coil_elem.find("links_uuids")
+        assert links is not None
+        link_uuids = [lu.attrib["uuid"] for lu in links.findall("link_uuid")]
+        assert len(link_uuids) == 2
+
+    def test_xml_conductor_references_valid_on_diagram2(
+        self, control_circuit_element_db, valid_control_circuit_params, tmp_path
+    ):
+        import xml.etree.ElementTree as ET
+
+        writer = _make_writer(control_circuit_element_db)
+        tmpl = MotorStarterTemplate(writer)
+        project = tmpl.generate(valid_control_circuit_params)
+
+        filepath = tmp_path / "test_control_circuit.qet"
+        writer.save(project, filepath)
+
+        tree = ET.parse(filepath)
+        root = tree.getroot()
+        diagram2 = root.findall("diagram")[1]
+
+        element_uuids = set()
+        terminal_uuids = set()
+        for elem in diagram2.find("elements").findall("element"):
+            element_uuids.add(elem.attrib["uuid"])
+            for term in elem.find("terminals").findall("terminal"):
+                terminal_uuids.add(term.attrib["uuid"])
+
+        for cond in diagram2.find("conductors").findall("conductor"):
+            assert cond.attrib["terminal1"] in terminal_uuids
+            assert cond.attrib["terminal2"] in terminal_uuids
+            assert cond.attrib["element1"] in element_uuids
+            assert cond.attrib["element2"] in element_uuids

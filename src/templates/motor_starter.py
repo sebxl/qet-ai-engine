@@ -1,10 +1,19 @@
-"""Motor Starter Hauptstromkreis template (QET-4).
+"""Motor Starter template (QET-4 / QET-5).
 
-Generates a 3-phase motor starter main circuit with:
-  F1 -- Circuit breaker 3p
-  K1 -- Contactor 3p (power contacts)
-  F2 -- Thermal overload relay
-  M1 -- Three-phase motor
+Generates a 3-phase motor starter:
+  Folio 1 -- Hauptstromkreis (power circuit):
+    F1 -- Circuit breaker 3p
+    K1 -- Contactor 3p (power contacts)
+    F2 -- Thermal overload relay
+    M1 -- Three-phase motor
+
+  Folio 2 -- Steuerstromkreis (control circuit, optional):
+    S0  -- E-Stop NC
+    F2  -- Overload aux NC (slave)
+    S1  -- Stop button NC
+    S2  -- Start button NO   (parallel branch)
+    K1  -- Self-hold NO      (parallel branch)
+    K1  -- Coil A1-A2        (master)
 """
 
 from __future__ import annotations
@@ -40,6 +49,33 @@ ELEMENT_PATHS = {
     ),
 }
 
+CONTROL_ELEMENT_PATHS = {
+    "estop_nc": (
+        "10_electric/10_allpole/380_signaling_operating"
+        "/20_push_buttons/e_stop_1p.elmt"
+    ),
+    "overload_aux_nc": (
+        "10_electric/10_allpole/310_relays_contactors_contacts"
+        "/02_contacts_cross_referencing/01_auxiliary_contacts/con_simple_nf.elmt"
+    ),
+    "stop_button_nc": (
+        "10_electric/10_allpole/380_signaling_operating"
+        "/20_push_buttons/poussoir_nf.elmt"
+    ),
+    "start_button_no": (
+        "10_electric/10_allpole/380_signaling_operating"
+        "/20_push_buttons/poussoir.elmt"
+    ),
+    "self_hold_no": (
+        "10_electric/10_allpole/310_relays_contactors_contacts"
+        "/02_contacts_cross_referencing/01_auxiliary_contacts/con_simple.elmt"
+    ),
+    "coil": (
+        "10_electric/10_allpole/310_relays_contactors_contacts"
+        "/01_coils/bobine3.elmt"
+    ),
+}
+
 REQUIRED_PARAMS = ("motor_power_kw", "motor_voltage", "motor_current_a", "protection_type")
 
 
@@ -61,8 +97,14 @@ class MotorStarterTemplate(BaseTemplate):
         )
         folio = self._writer.add_folio(project, "Hauptstromkreis")
 
-        elements = self._place_elements(folio, params)
-        self._connect_phases(folio, elements)
+        power_elements = self._place_elements(folio, params)
+        self._connect_phases(folio, power_elements)
+
+        if params.get("with_control_circuit"):
+            folio2 = self._writer.add_folio(project, "Steuerstromkreis")
+            ctrl_elements = self._place_control_elements(folio2)
+            self._connect_control_circuit(folio2, ctrl_elements)
+            self._link_cross_references(power_elements, ctrl_elements)
 
         return project
 
@@ -72,6 +114,9 @@ class MotorStarterTemplate(BaseTemplate):
         missing = [k for k in REQUIRED_PARAMS if k not in params]
         if missing:
             raise ValueError(f"Missing required parameters: {', '.join(missing)}")
+
+        if params.get("with_control_circuit") and "contactor_coil_voltage" not in params:
+            raise ValueError("Missing required parameter: contactor_coil_voltage")
 
     def _place_elements(
         self, folio: Folio, params: dict
@@ -94,6 +139,77 @@ class MotorStarterTemplate(BaseTemplate):
             designation="M1",
         )
         return {"F1": f1, "K1": k1, "F2": f2, "M1": m1}
+
+    def _place_control_elements(
+        self, folio: Folio,
+    ) -> dict[str, PlacedElement]:
+        s0 = self._writer.place_element(
+            folio, CONTROL_ELEMENT_PATHS["estop_nc"], x=300, y=150,
+            designation="S0",
+        )
+        f2_aux = self._writer.place_element(
+            folio, CONTROL_ELEMENT_PATHS["overload_aux_nc"], x=300, y=230,
+            designation="F2",
+        )
+        s1 = self._writer.place_element(
+            folio, CONTROL_ELEMENT_PATHS["stop_button_nc"], x=300, y=310,
+            designation="S1",
+        )
+        s2 = self._writer.place_element(
+            folio, CONTROL_ELEMENT_PATHS["start_button_no"], x=300, y=390,
+            designation="S2",
+        )
+        k1_self = self._writer.place_element(
+            folio, CONTROL_ELEMENT_PATHS["self_hold_no"], x=380, y=390,
+            designation="K1",
+        )
+        k1_coil = self._writer.place_element(
+            folio, CONTROL_ELEMENT_PATHS["coil"], x=300, y=470,
+            designation="K1",
+        )
+        return {
+            "S0": s0, "F2_aux": f2_aux, "S1": s1,
+            "S2": s2, "K1_self": k1_self, "K1_coil": k1_coil,
+        }
+
+    def _connect_control_circuit(
+        self,
+        folio: Folio,
+        ctrl: dict[str, PlacedElement],
+    ) -> None:
+        s0 = ctrl["S0"]
+        f2_aux = ctrl["F2_aux"]
+        s1 = ctrl["S1"]
+        s2 = ctrl["S2"]
+        k1_self = ctrl["K1_self"]
+        k1_coil = ctrl["K1_coil"]
+
+        # 1: S0 idx0 (bottom) -> F2_aux idx0 (top)
+        _connect_by_index(folio, s0, 0, f2_aux, 0)
+        # 2: F2_aux idx1 (bottom) -> S1 idx0 (top)
+        _connect_by_index(folio, f2_aux, 1, s1, 0)
+        # 3: S1 idx1 (bottom) -> S2 idx0 (top)
+        _connect_by_index(folio, s1, 1, s2, 0)
+        # 4: S1 idx1 (bottom) -> K1_self idx0 (top)
+        _connect_by_index(folio, s1, 1, k1_self, 0)
+        # 5: S2 idx1 (bottom) -> K1_coil A1 (named)
+        _connect_by_index_and_name(folio, s2, 1, k1_coil, "A1")
+        # 6: K1_self idx1 (bottom) -> K1_coil A1 (named)
+        _connect_by_index_and_name(folio, k1_self, 1, k1_coil, "A1")
+
+    def _link_cross_references(
+        self,
+        power_elements: dict[str, PlacedElement],
+        ctrl_elements: dict[str, PlacedElement],
+    ) -> None:
+        k1_coil = ctrl_elements["K1_coil"]
+        k1_self = ctrl_elements["K1_self"]
+        k1_power = power_elements["K1"]
+
+        # K1_coil (master) <-> K1_self (slave)
+        self._writer.link_master_slave(k1_coil, k1_self)
+        # K1_coil (master) <-> K1_power (slave)
+        self._writer.link_master_slave(k1_coil, k1_power)
 
     def _connect_phases(
         self, folio: Folio, elements: dict[str, PlacedElement]

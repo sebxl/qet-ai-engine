@@ -44,21 +44,39 @@ Am QET-Quellcode wird nichts geaendert.
 
 | Issue | Titel | Milestone | Status |
 |-------|-------|-----------|--------|
-| QET-1 | Element-Parser & Terminal-Datenbank | Foundation | Backlog |
-| QET-2 | QET-XML-Writer | Foundation | Backlog |
-| QET-3 | SVG-Renderer (Self-Verification) | Foundation | Backlog |
-| QET-4 | Motorstarter Hauptstromkreis | First Template | Backlog |
-| QET-5 | Motorstarter Steuerstromkreis & Querverweise | First Template | Backlog |
-| QET-6 | Engine-Integration & E2E-Validierung | First Template | Backlog |
+| QET-1 | Element-Parser & Terminal-Datenbank | Foundation | Done |
+| QET-2 | QET-XML-Writer | Foundation | Done |
+| QET-3 | SVG-Renderer (Self-Verification) | Foundation | Done |
+| QET-4 | Motorstarter Hauptstromkreis (hardcoded Referenz) | First Template | Backlog |
+| QET-5 | Motorstarter Steuerstromkreis & Querverweise (hardcoded Referenz) | First Template | Backlog |
+| QET-6 | Engine-Integration & E2E-Validierung (hardcoded Referenz) | First Template | Backlog |
+| QET-7 | Element-Resolver & Alias-Tabelle | Engine Core | Backlog |
+| QET-8 | Layout-Engine — Regelbasierte Auto-Platzierung | Engine Core | Backlog |
+| QET-9 | Connection-Router — Terminal-Matching & Leiter | Engine Core | Backlog |
+| QET-10 | BMK-Generator & Automatische Querverweise | Engine Core | Backlog |
+| QET-11 | JSON-Schema (qet-ai/v1) & Eingabe-Validierung | Engine Core | Backlog |
+| QET-12 | Doppelbrecher — Erster vollstaendiger E-Plan (E2E) | First Template | Backlog |
 
 ### Abhaengigkeiten
 
 ```
-QET-1 Element-Parser ---+---> QET-3 SVG-Renderer ----------+
-                        |                                   |
-                        +---> QET-4 Hauptstrom --> QET-5 Steuer --> QET-6 E2E
+Foundation (Done):
+QET-1 Element-Parser ---+---> QET-3 SVG-Renderer
 QET-2 XML-Writer -------+
+
+Hardcoded Referenz (QET verifiziert korrekte Anzeige):
+QET-4 Hauptstrom --> QET-5 Steuer --> QET-6 E2E
+
+Engine Core (skalierbar):
+QET-7 Resolver --> QET-8 Layout --> QET-9 Router --> QET-10 BMK --+
+QET-11 JSON-Schema -----------------------------------------------+--> QET-12 Doppelbrecher E2E
 ```
+
+### Architektur-Prinzip (Engine Core)
+
+Templates definieren **Topologie** (WAS verbunden wird), die Layout-Engine
+bestimmt **Positionen** (WO es hinkommt). Keine hardcodierten Positionen in
+der skalierbaren Engine. Neue Schaltungstypen = neues JSON, kein neuer Code.
 
 ## Self-Verification Loop
 
