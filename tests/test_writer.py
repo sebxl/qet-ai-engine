@@ -605,7 +605,7 @@ class TestSave:
         assert "z" in elem.attrib
         assert elem.attrib["z"] == "10"
         assert "orientation" in elem.attrib
-        assert elem.attrib["freezeLabel"] == "false"
+        assert elem.attrib["freezeLabel"] == "true"
 
     def test_element_position_formatting(self):
         elem = self.root.findall("diagram/elements/element")[0]

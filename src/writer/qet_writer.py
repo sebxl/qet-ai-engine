@@ -21,7 +21,22 @@ from .models import (
 
 ORIENTATION_MAP = {"n": 0, "e": 1, "s": 2, "w": 3}
 
+TERMINAL_SIZE = 4.0
+
 DEFAULT_FONT = "Liberation Sans,9,-1,5,50,0,0,0,0,0,Regular"
+
+
+def _dock_elmt_offset(x: float, y: float, orientation: int) -> tuple[float, float]:
+    """Compute QET dock_elmt_ position (terminal x/y + 4px inward shift)."""
+    if orientation == 0:    # North
+        return x, y + TERMINAL_SIZE
+    elif orientation == 1:  # East
+        return x - TERMINAL_SIZE, y
+    elif orientation == 2:  # South
+        return x, y - TERMINAL_SIZE
+    elif orientation == 3:  # West
+        return x + TERMINAL_SIZE, y
+    return x, y
 
 
 def _extract_prefix(designation: str) -> str:
@@ -84,6 +99,7 @@ class QETWriter:
                 x=t.x,
                 y=t.y,
                 orientation=ORIENTATION_MAP.get(t.orientation, 0),
+                elmt_uuid=t.uuid,
             )
             placed_terminals.append(pt)
 
@@ -143,6 +159,8 @@ class QETWriter:
             element1_label=elem1.designation,
             element2_label=elem2.designation,
             label=label,
+            terminal1_elmt_uuid=t1.elmt_uuid,
+            terminal2_elmt_uuid=t2.elmt_uuid,
         )
 
         folio.conductors.append(conductor)
@@ -237,16 +255,18 @@ class QETWriter:
             type=pe.elmt_path, uuid=pe.uuid,
             x=_format_coord(pe.x), y=_format_coord(pe.y),
             z=_format_coord(pe.z), orientation=str(pe.orientation),
-            prefix=pe.prefix, freezeLabel="false",
+            prefix=pe.prefix, freezeLabel="true",
         )
 
         terminals_node = ET.SubElement(elem, "terminals")
         for pt in pe.terminals:
+            dock_x, dock_y = _dock_elmt_offset(pt.x, pt.y, pt.orientation)
+            terminal_uuid = pt.elmt_uuid if pt.elmt_uuid else pt.uuid
             ET.SubElement(
                 terminals_node, "terminal",
-                x=_format_coord(pt.x), y=_format_coord(pt.y),
+                x=_format_coord(dock_x), y=_format_coord(dock_y),
                 orientation=str(pt.orientation),
-                id=str(pt.id), uuid=pt.uuid,
+                id=str(pt.id), uuid=terminal_uuid,
             )
 
         ET.SubElement(elem, "inputs")
@@ -279,9 +299,11 @@ class QETWriter:
                 ET.SubElement(links_node, "link_uuid", uuid=link_uuid)
 
     def _build_conductor(self, parent: ET.Element, cond: Conductor) -> None:
+        t1_uuid = cond.terminal1_elmt_uuid if cond.terminal1_elmt_uuid else cond.terminal1_uuid
+        t2_uuid = cond.terminal2_elmt_uuid if cond.terminal2_elmt_uuid else cond.terminal2_uuid
         c = ET.SubElement(
             parent, "conductor",
-            terminal1=cond.terminal1_uuid, terminal2=cond.terminal2_uuid,
+            terminal1=t1_uuid, terminal2=t2_uuid,
             element1=cond.element1_uuid, element2=cond.element2_uuid,
             element1_label=cond.element1_label,
             element2_label=cond.element2_label,
