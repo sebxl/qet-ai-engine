@@ -204,3 +204,145 @@ def valid_motor_starter_params():
         "motor_current_a": 3.5,
         "protection_type": "thermal_overload",
     }
+
+
+# ── Control Circuit fixtures (QET-5) ─────────────────────────────────
+
+
+@pytest.fixture
+def estop_nc_element_record():
+    """Fake ElementRecord for e_stop_1p.elmt (E-Stop NC)."""
+    return ElementRecord(
+        path=(
+            "10_electric/10_allpole/380_signaling_operating"
+            "/20_push_buttons/e_stop_1p.elmt"
+        ),
+        uuid="{9f535be6-89ee-f067-f1d0-4683a1db2a30}",
+        names={"de": "Not-Aus", "en": "E-Stop"},
+        width=30, height=60, hotspot_x=15, hotspot_y=30,
+        link_type="master",
+        kind_informations=KindInformations(type="commutator"),
+        terminals=[
+            # SOUTH FIRST in XML -- idx0=BOTTOM, idx1=TOP (reversed!)
+            Terminal(uuid="{es-t0}", name="",
+                     x=0.0, y=20.0, orientation="s", type="Generic"),
+            Terminal(uuid="{es-t1}", name="",
+                     x=0.0, y=-20.0, orientation="n", type="Generic"),
+        ],
+        graphic_primitives=[],
+        informations="",
+    )
+
+
+@pytest.fixture
+def overload_aux_nc_element_record():
+    """Fake ElementRecord for con_simple_nf.elmt (Overload aux NC)."""
+    return ElementRecord(
+        path=(
+            "10_electric/10_allpole/310_relays_contactors_contacts"
+            "/02_contacts_cross_referencing/01_auxiliary_contacts/con_simple_nf.elmt"
+        ),
+        uuid="{a48a492d-e5e9-8768-2997-a2e4ec843957}",
+        names={"de": "Kontakt NC", "en": "Contact NC"},
+        width=30, height=60, hotspot_x=20, hotspot_y=30,
+        link_type="slave",
+        kind_informations=KindInformations(type="simple", state="NC", number=1),
+        terminals=[
+            Terminal(uuid="{nf-t0}", name="",
+                     x=0.0, y=-20.0, orientation="n", type="Generic"),
+            Terminal(uuid="{nf-t1}", name="",
+                     x=0.0, y=20.0, orientation="s", type="Generic"),
+        ],
+        graphic_primitives=[],
+        informations="",
+    )
+
+
+@pytest.fixture
+def stop_button_nc_element_record():
+    """Fake ElementRecord for poussoir_nf.elmt (Stop button NC)."""
+    return ElementRecord(
+        path=(
+            "10_electric/10_allpole/380_signaling_operating"
+            "/20_push_buttons/poussoir_nf.elmt"
+        ),
+        uuid="{875793b5-3fcb-4ff8-f9c6-d5a5e3ad53ae}",
+        names={"de": "Taster NC", "en": "Push button NC"},
+        width=30, height=60, hotspot_x=15, hotspot_y=30,
+        link_type="master",
+        kind_informations=KindInformations(type="commutator"),
+        terminals=[
+            Terminal(uuid="{pnf-t0}", name="",
+                     x=0.0, y=-21.0, orientation="n", type="Generic"),
+            Terminal(uuid="{pnf-t1}", name="",
+                     x=0.0, y=21.0, orientation="s", type="Generic"),
+        ],
+        graphic_primitives=[],
+        informations="",
+    )
+
+
+@pytest.fixture
+def start_button_no_element_record():
+    """Fake ElementRecord for poussoir.elmt (Start button NO)."""
+    return ElementRecord(
+        path=(
+            "10_electric/10_allpole/380_signaling_operating"
+            "/20_push_buttons/poussoir.elmt"
+        ),
+        uuid="{0d256453-ab42-30c1-1d91-b3ec0fb1298c}",
+        names={"de": "Taster NO", "en": "Push button NO"},
+        width=30, height=60, hotspot_x=15, hotspot_y=30,
+        link_type="master",
+        kind_informations=KindInformations(type="commutator"),
+        terminals=[
+            Terminal(uuid="{pno-t0}", name="",
+                     x=0.0, y=-21.0, orientation="n", type="Generic"),
+            Terminal(uuid="{pno-t1}", name="",
+                     x=0.0, y=21.0, orientation="s", type="Generic"),
+        ],
+        graphic_primitives=[],
+        informations="",
+    )
+
+
+@pytest.fixture
+def control_circuit_element_db(
+    breaker_3f_element_record,
+    contactor_3p_element_record,
+    thermal_relay_element_record,
+    motor_tri_element_record,
+    coil_element_record,
+    slave_element_record,
+    estop_nc_element_record,
+    overload_aux_nc_element_record,
+    stop_button_nc_element_record,
+    start_button_no_element_record,
+):
+    """Combined element DB with all 10 elements for power + control circuit."""
+    records = [
+        breaker_3f_element_record,
+        contactor_3p_element_record,
+        thermal_relay_element_record,
+        motor_tri_element_record,
+        coil_element_record,
+        slave_element_record,
+        estop_nc_element_record,
+        overload_aux_nc_element_record,
+        stop_button_nc_element_record,
+        start_button_no_element_record,
+    ]
+    return {r.path: r for r in records}
+
+
+@pytest.fixture
+def valid_control_circuit_params():
+    """Motor starter params with control circuit enabled."""
+    return {
+        "motor_power_kw": 1.5,
+        "motor_voltage": "400V_3ph",
+        "motor_current_a": 3.5,
+        "protection_type": "thermal_overload",
+        "with_control_circuit": True,
+        "contactor_coil_voltage": "24V_DC",
+    }
