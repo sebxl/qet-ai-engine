@@ -151,6 +151,8 @@ def _connect_by_index(
         element1_label=elem1.designation,
         element2_label=elem2.designation,
         label=label,
+        terminal1_elmt_uuid=t1.elmt_uuid,
+        terminal2_elmt_uuid=t2.elmt_uuid,
     )
     folio.conductors.append(conductor)
     return conductor
@@ -179,6 +181,8 @@ def _connect_by_name_and_index(
         element1_label=elem1.designation,
         element2_label=elem2.designation,
         label=label,
+        terminal1_elmt_uuid=t1.elmt_uuid,
+        terminal2_elmt_uuid=t2.elmt_uuid,
     )
     folio.conductors.append(conductor)
     return conductor
@@ -207,6 +211,8 @@ def _connect_by_index_and_name(
         element1_label=elem1.designation,
         element2_label=elem2.designation,
         label=label,
+        terminal1_elmt_uuid=t1.elmt_uuid,
+        terminal2_elmt_uuid=t2.elmt_uuid,
     )
     folio.conductors.append(conductor)
     return conductor

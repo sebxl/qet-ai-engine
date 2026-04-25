@@ -21,6 +21,7 @@ class PlacedTerminal:
     x: float
     y: float
     orientation: int  # 0=n, 1=e, 2=s, 3=w
+    elmt_uuid: str = ""
 
 
 @dataclass
@@ -70,6 +71,8 @@ class Conductor:
     element1_label: str
     element2_label: str
     label: str
+    terminal1_elmt_uuid: str = ""
+    terminal2_elmt_uuid: str = ""
 
 
 @dataclass
