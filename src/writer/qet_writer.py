@@ -56,7 +56,7 @@ class QETWriter:
         return current
 
     def create_project(self, title: str, author: str = "") -> QETProject:
-        return QETProject(title=title)
+        return QETProject(title=title, author=author)
 
     def add_folio(self, project: QETProject, title: str) -> Folio:
         order = len(project.folios) + 1
@@ -163,20 +163,20 @@ class QETWriter:
         root = ET.Element("project", title=project.title, version=project.version)
 
         ET.SubElement(root, "properties")
-        self._build_newdiagrams(root)
+        self._build_newdiagrams(root, project.author)
 
         for folio in project.folios:
-            self._build_diagram(root, folio)
+            self._build_diagram(root, folio, project.author)
 
         ET.SubElement(root, "collection")
         return root
 
-    def _build_newdiagrams(self, root: ET.Element) -> None:
+    def _build_newdiagrams(self, root: ET.Element, author: str) -> None:
         nd = ET.SubElement(root, "newdiagrams")
 
         ET.SubElement(nd, "border", cols="17", colsize="60", rows="8", rowsize="80",
                        displaycols="true", displayrows="true")
-        ET.SubElement(nd, "inset", displayAt="bottom", title="", author="",
+        ET.SubElement(nd, "inset", displayAt="bottom", title="", author=author,
                        folio="%id/%total", date="", filename="", plant="",
                        locmach="", indexrev="", version="")
         ET.SubElement(nd, "conductors", type="multi", condsize="1", num="",
@@ -201,10 +201,10 @@ class QETWriter:
         ET.SubElement(nd, "element_autonums", current_autonum="",
                        freeze_new_elements="false")
 
-    def _build_diagram(self, root: ET.Element, folio: Folio) -> None:
+    def _build_diagram(self, root: ET.Element, folio: Folio, author: str) -> None:
         diagram = ET.SubElement(
             root, "diagram",
-            title=folio.title, author="", version="0.90",
+            title=folio.title, author=author, version="0.90",
             order=str(folio.order), date="", folio="%id/%total",
             rows="8", rowsize="80", cols="17", colsize="60",
             displayrows="true", displaycols="true",
@@ -260,7 +260,7 @@ class QETWriter:
         for dt in pe.dynamic_texts:
             dyn = ET.SubElement(
                 dt_node, "dynamic_elmt_text",
-                x=_format_coord(dt.x), y=str(dt.y),
+                x=_format_coord(dt.x), y=_format_coord(dt.y),
                 z=_format_coord(dt.z), rotation="0",
                 uuid=dt.uuid, Halignment="AlignLeft", Valignment="AlignTop",
                 font=dt.font, text_width="-1", frame="false",
@@ -289,7 +289,7 @@ class QETWriter:
             terminalname1=cond.terminal1_name,
             terminalname2=cond.terminal2_name,
             x="0", y="0",
-            type="multi", condsize="1", num="", formula="",
+            type="multi", condsize="1", num=cond.label, formula="",
             displaytext="1", text_color="#000000", numsize="9",
             color="#000000", color2="#000000", bicolor="false",
             **{"dash-size": "1"}, freezeLabel="false",

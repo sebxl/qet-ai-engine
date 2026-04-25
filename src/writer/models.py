@@ -87,5 +87,6 @@ class QETProject:
     """Top-level QET project."""
 
     title: str
+    author: str = ""
     version: str = "0.90"
     folios: list[Folio] = field(default_factory=list)

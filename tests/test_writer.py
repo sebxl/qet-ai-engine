@@ -170,6 +170,16 @@ class TestCreateProject:
         p = w.create_project("X")
         assert p.folios == []
 
+    def test_project_author(self, fake_element_db):
+        w = QETWriter(element_db=fake_element_db)
+        p = w.create_project("X", author="Max Mustermann")
+        assert p.author == "Max Mustermann"
+
+    def test_project_author_default_empty(self, fake_element_db):
+        w = QETWriter(element_db=fake_element_db)
+        p = w.create_project("X")
+        assert p.author == ""
+
 
 class TestAddFolio:
     """Tests for QETWriter.add_folio()."""
@@ -761,3 +771,72 @@ class TestSaveMultipleFolios:
         assert diagrams[0].attrib["order"] == "1"
         assert diagrams[1].attrib["order"] == "2"
         assert diagrams[2].attrib["order"] == "3"
+
+
+class TestSaveAuthor:
+    """Tests for author propagation into XML."""
+
+    def test_author_in_diagram(self, fake_element_db, tmp_path):
+        w = QETWriter(element_db=fake_element_db)
+        p = w.create_project("Test", author="Max Mustermann")
+        w.add_folio(p, "Folio 1")
+        fp = tmp_path / "author.qet"
+        w.save(p, fp)
+        root = ET.fromstring(fp.read_text(encoding="utf-8").split("\n", 1)[1])
+        assert root.find("diagram").attrib["author"] == "Max Mustermann"
+
+    def test_author_in_inset(self, fake_element_db, tmp_path):
+        w = QETWriter(element_db=fake_element_db)
+        p = w.create_project("Test", author="Max Mustermann")
+        w.add_folio(p, "Folio 1")
+        fp = tmp_path / "author.qet"
+        w.save(p, fp)
+        root = ET.fromstring(fp.read_text(encoding="utf-8").split("\n", 1)[1])
+        assert root.find("newdiagrams/inset").attrib["author"] == "Max Mustermann"
+
+    def test_empty_author_default(self, fake_element_db, tmp_path):
+        w = QETWriter(element_db=fake_element_db)
+        p = w.create_project("Test")
+        w.add_folio(p, "Folio 1")
+        fp = tmp_path / "author.qet"
+        w.save(p, fp)
+        root = ET.fromstring(fp.read_text(encoding="utf-8").split("\n", 1)[1])
+        assert root.find("diagram").attrib["author"] == ""
+
+
+class TestSaveConductorLabel:
+    """Tests for conductor label (num) in XML."""
+
+    def test_conductor_label_in_xml(self, fake_element_db, coil_element_record, tmp_path):
+        counter = iter(range(1000))
+        w = QETWriter(
+            element_db=fake_element_db,
+            uuid_factory=lambda: "{" + f"uuid-{next(counter):04d}" + "}",
+        )
+        p = w.create_project("Test")
+        f = w.add_folio(p, "Folio 1")
+        e1 = w.place_element(f, coil_element_record.path, 100, 200, "K1")
+        e2 = w.place_element(f, coil_element_record.path, 200, 200, "K2")
+        w.connect(f, e1, "A2", e2, "A1", label="W1")
+        fp = tmp_path / "label.qet"
+        w.save(p, fp)
+        root = ET.fromstring(fp.read_text(encoding="utf-8").split("\n", 1)[1])
+        cond = root.find("diagram/conductors/conductor")
+        assert cond.attrib["num"] == "W1"
+
+    def test_conductor_empty_label(self, fake_element_db, coil_element_record, tmp_path):
+        counter = iter(range(1000))
+        w = QETWriter(
+            element_db=fake_element_db,
+            uuid_factory=lambda: "{" + f"uuid-{next(counter):04d}" + "}",
+        )
+        p = w.create_project("Test")
+        f = w.add_folio(p, "Folio 1")
+        e1 = w.place_element(f, coil_element_record.path, 100, 200, "K1")
+        e2 = w.place_element(f, coil_element_record.path, 200, 200, "K2")
+        w.connect(f, e1, "A2", e2, "A1")
+        fp = tmp_path / "label.qet"
+        w.save(p, fp)
+        root = ET.fromstring(fp.read_text(encoding="utf-8").split("\n", 1)[1])
+        cond = root.find("diagram/conductors/conductor")
+        assert cond.attrib["num"] == ""
