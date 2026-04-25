@@ -8,8 +8,9 @@ All render functions produce SVG string fragments using string formatting
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from xml.sax.saxutils import escape as xml_escape
 
 from src.element_db.models import (
     ElementRecord,
@@ -24,6 +25,15 @@ from src.writer.models import (
     PlacedTerminal,
     QETProject,
 )
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────
+
+def _strip_common_prefix(path: str) -> str:
+    """Strip the ``common://`` prefix from element paths if present."""
+    if path.startswith("common://"):
+        return path[len("common://"):]
+    return path
 
 
 # ── Folio constants ───────────────────────────────────────────────────────
@@ -265,11 +275,13 @@ def _render_polygon(prim: GraphicPrimitive) -> str:
 
     points_str = " ".join(points)
     closed = a.get("closed", "true").lower() == "true"
-    style = _style_attrs(a.get("style", ""))
 
     tag = "polygon" if closed else "polyline"
-    fill_override = ' fill="none"' if not closed else ""
-    return f'<{tag} points="{points_str}" {style}{fill_override}/>'
+    style_dict = _parse_style(a.get("style", ""))
+    if not closed:
+        style_dict["fill"] = "none"
+    style_str_out = " ".join(f'{k}="{v}"' for k, v in style_dict.items())
+    return f'<{tag} points="{points_str}" {style_str_out}/>'
 
 
 # ===========================================================================
@@ -314,16 +326,17 @@ def _render_text(prim: GraphicPrimitive) -> str:
         return (
             f'<text x="{x}" y="{y}" fill="{color}" '
             f'font-family="{family}" font-size="{size}"{transform}>'
-            f'{lines[0]}</text>'
+            f'{xml_escape(lines[0])}</text>'
         )
 
     # Multiline: use tspan elements
     tspans = []
     for idx, line in enumerate(lines):
+        escaped_line = xml_escape(line)
         if idx == 0:
-            tspans.append(f'<tspan x="{x}" dy="0">{line}</tspan>')
+            tspans.append(f'<tspan x="{x}" dy="0">{escaped_line}</tspan>')
         else:
-            tspans.append(f'<tspan x="{x}" dy="{size}">{line}</tspan>')
+            tspans.append(f'<tspan x="{x}" dy="{size}">{escaped_line}</tspan>')
 
     inner = "".join(tspans)
     return (
@@ -337,7 +350,7 @@ def _render_text(prim: GraphicPrimitive) -> str:
 # Cycle 9: Primitive Dispatcher
 # ===========================================================================
 
-_PRIMITIVE_RENDERERS: dict[str, Any] = {
+_PRIMITIVE_RENDERERS: dict[str, Callable[[GraphicPrimitive], str]] = {
     "line": _render_line,
     "rect": _render_rect,
     "ellipse": _render_ellipse,
@@ -356,7 +369,7 @@ def _render_primitive(prim: GraphicPrimitive) -> str:
     renderer = _PRIMITIVE_RENDERERS.get(prim.type)
     if renderer is not None:
         return renderer(prim)
-    return f"<!-- unknown primitive: {prim.type} -->"
+    return f"<!-- unknown primitive: {xml_escape(prim.type)} -->"
 
 
 # ===========================================================================
@@ -376,7 +389,8 @@ def _render_element(placed: PlacedElement, record: ElementRecord) -> str:
     transform = " ".join(transform_parts)
 
     parts: list[str] = []
-    parts.append(f'<g transform="{transform}" class="element" data-designation="{placed.designation}">')
+    escaped_designation = xml_escape(placed.designation, {'"': '&quot;'})
+    parts.append(f'<g transform="{transform}" class="element" data-designation="{escaped_designation}">')
 
     for prim in record.graphic_primitives:
         parts.append(f"  {_render_primitive(prim)}")
@@ -389,7 +403,7 @@ def _render_element(placed: PlacedElement, record: ElementRecord) -> str:
     parts.append(
         f'<text x="{label_x}" y="{label_y}" fill="#333333" '
         f'font-family="Liberation Sans" font-size="9" class="designation-label">'
-        f'{placed.designation}</text>'
+        f'{xml_escape(placed.designation)}</text>'
     )
 
     return "\n".join(parts)
@@ -462,7 +476,7 @@ def _render_conductor(
             f'<text x="{mx}" y="{my - 5}" fill="#2980b9" '
             f'font-family="Liberation Sans" font-size="8" '
             f'text-anchor="middle" class="conductor-label">'
-            f'{conductor.label}</text>'
+            f'{xml_escape(conductor.label)}</text>'
         )
 
     return "\n".join(parts)
@@ -484,11 +498,7 @@ def _build_terminal_positions(
     positions: dict[str, tuple[float, float]] = {}
 
     for pe in folio.elements:
-        # Strip common:// prefix for DB lookup
-        path = pe.elmt_path
-        if path.startswith("common://"):
-            path = path[len("common://"):]
-
+        path = _strip_common_prefix(pe.elmt_path)
         record = element_db.get(path)
         if record is None:
             continue
@@ -527,7 +537,7 @@ def _render_title_block(
     # Title block rectangle
     tb_x = MARGIN + HEADER_WIDTH
     tb_y = height - 40
-    tb_w = width - MARGIN - HEADER_WIDTH
+    tb_w = width - 2 * MARGIN - HEADER_WIDTH
     tb_h = 35
 
     parts.append(
@@ -539,14 +549,14 @@ def _render_title_block(
     parts.append(
         f'<text x="{tb_x + 10}" y="{tb_y + 15}" fill="#333333" '
         f'font-family="Liberation Sans" font-size="11" font-weight="bold">'
-        f'{folio.title}</text>'
+        f'{xml_escape(folio.title)}</text>'
     )
 
     # Author and project info
     parts.append(
         f'<text x="{tb_x + 10}" y="{tb_y + 28}" fill="#666666" '
         f'font-family="Liberation Sans" font-size="9">'
-        f'{project.title} | {project.author} | Folio {folio.order}</text>'
+        f'{xml_escape(project.title)} | {xml_escape(project.author)} | Folio {folio.order}</text>'
     )
 
     return "\n".join(parts)
@@ -677,9 +687,7 @@ class SVGRenderer:
         # Elements
         parts.append("<!-- elements -->")
         for pe in folio.elements:
-            path = pe.elmt_path
-            if path.startswith("common://"):
-                path = path[len("common://"):]
+            path = _strip_common_prefix(pe.elmt_path)
             record = self._element_db.get(path)
             if record is not None:
                 parts.append(_render_element(pe, record))

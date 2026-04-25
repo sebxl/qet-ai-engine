@@ -8,8 +8,6 @@ the shared conftest.py used by the writer tests.
 from __future__ import annotations
 
 import math
-import re
-import tempfile
 from pathlib import Path
 
 import pytest
